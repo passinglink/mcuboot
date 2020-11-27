@@ -17,6 +17,7 @@
 
 #include <assert.h>
 #include <zephyr.h>
+#include <devicetree.h>
 #include <drivers/gpio.h>
 #include <sys/__assert.h>
 #include <drivers/flash.h>
@@ -354,10 +355,58 @@ static bool detect_pin(const char* port, int pin, uint32_t expected_value) {
 }
 #endif
 
+static void enter_dfu(k_timeout_t timeout) {
+  int rc;
+
+  rc = usb_enable(NULL);
+  if (rc) {
+      BOOT_LOG_ERR("Cannot enable USB");
+  } else {
+      BOOT_LOG_INF("Waiting for USB DFU");
+      wait_for_usb_dfu(timeout);
+      BOOT_LOG_INF("USB DFU wait time elapsed");
+  }
+}
+
+static void preboot_probe(void)
+{
+#ifdef CONFIG_MCUBOOT_SERIAL
+    if (detect_pin(CONFIG_BOOT_SERIAL_DETECT_PORT, CONFIG_BOOT_SERIAL_DETECT_PIN,
+                   CONFIG_BOOT_SERIAL_DETECT_PIN_VAL) &&
+            !boot_skip_serial_recovery()) {
+        BOOT_LOG_INF("Enter the serial recovery mode");
+        rc = boot_console_init();
+        __ASSERT(rc == 0, "Error initializing boot console.\n");
+        boot_serial_start(&boot_funcs);
+        __ASSERT(0, "Bootloader serial process was terminated unexpectedly.\n");
+    }
+#endif
+
+#if DT_HAS_CHOSEN(mcuboot_sram_warmboot)
+    uint64_t* addr = (uint64_t*)DT_REG_ADDR(DT_CHOSEN(mcuboot_sram_warmboot));
+    if (*addr == 0x1209214c1209214c) {
+      BOOT_LOG_INF("SRAM magic matched");
+      *addr = 0;
+
+      enter_dfu(K_FOREVER);
+      return;
+    }
+#endif
+
+#if defined(CONFIG_BOOT_USB_DFU_GPIO)
+    if (detect_pin(CONFIG_BOOT_USB_DFU_DETECT_PORT, CONFIG_BOOT_USB_DFU_DETECT_PIN,
+                   CONFIG_BOOT_USB_DFU_DETECT_PIN_VAL)) {
+      enter_dfu(K_FOREVER);
+      return;
+    }
+#elif defined(CONFIG_BOOT_USB_DFU_WAIT)
+    enter_dfu(K_MSEC(CONFIG_BOOT_USB_DFU_WAIT_DELAY_MS));
+#endif
+}
+
 void main(void)
 {
     struct boot_rsp rsp;
-    int rc;
     fih_int fih_rc = FIH_FAILURE;
 
     MCUBOOT_WATCHDOG_FEED();
@@ -367,8 +416,6 @@ void main(void)
     os_heap_init();
 
     ZEPHYR_BOOT_LOG_START();
-
-    (void)rc;
 
 #if (!defined(CONFIG_XTENSA) && defined(DT_CHOSEN_ZEPHYR_FLASH_CONTROLLER_LABEL))
     if (!flash_device_get_binding(DT_CHOSEN_ZEPHYR_FLASH_CONTROLLER_LABEL)) {
@@ -385,40 +432,7 @@ void main(void)
     }
 #endif
 
-#ifdef CONFIG_MCUBOOT_SERIAL
-    if (detect_pin(CONFIG_BOOT_SERIAL_DETECT_PORT, CONFIG_BOOT_SERIAL_DETECT_PIN,
-                   CONFIG_BOOT_SERIAL_DETECT_PIN_VAL) &&
-            !boot_skip_serial_recovery()) {
-        BOOT_LOG_INF("Enter the serial recovery mode");
-        rc = boot_console_init();
-        __ASSERT(rc == 0, "Error initializing boot console.\n");
-        boot_serial_start(&boot_funcs);
-        __ASSERT(0, "Bootloader serial process was terminated unexpectedly.\n");
-    }
-#endif
-
-#if defined(CONFIG_BOOT_USB_DFU_GPIO)
-    if (detect_pin(CONFIG_BOOT_USB_DFU_DETECT_PORT, CONFIG_BOOT_USB_DFU_DETECT_PIN,
-                   CONFIG_BOOT_USB_DFU_DETECT_PIN_VAL)) {
-        rc = usb_enable(NULL);
-        if (rc) {
-            BOOT_LOG_ERR("Cannot enable USB");
-        } else {
-            BOOT_LOG_INF("Waiting for USB DFU");
-            wait_for_usb_dfu(K_FOREVER);
-            BOOT_LOG_INF("USB DFU wait time elapsed");
-        }
-    }
-#elif defined(CONFIG_BOOT_USB_DFU_WAIT)
-    rc = usb_enable(NULL);
-    if (rc) {
-        BOOT_LOG_ERR("Cannot enable USB");
-    } else {
-        BOOT_LOG_INF("Waiting for USB DFU");
-        wait_for_usb_dfu(K_MSEC(CONFIG_BOOT_USB_DFU_WAIT_DELAY_MS));
-        BOOT_LOG_INF("USB DFU wait time elapsed");
-    }
-#endif
+    preboot_probe();
 
     FIH_CALL(boot_go, fih_rc, &rsp);
     if (fih_not_eq(fih_rc, FIH_SUCCESS)) {
