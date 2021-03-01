@@ -630,4 +630,9 @@ config MCUBOOT_BOOTUTIL_LIB_OWN_LOG
 	bool
 	default n
 
+config PASSINGLINK_DISPLAY_SSD1306
+	bool "Use SSD1306 to display DFU status"
+	depends on MULTITHREADING
+	depends on I2C
+
 source "Kconfig.zephyr"

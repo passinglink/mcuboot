@@ -250,6 +250,12 @@ if(CONFIG_MCUBOOT_SERIAL)
     )
 endif()
 
+if(CONFIG_PASSINGLINK_DISPLAY_SSD1306)
+  set_property(TARGET app PROPERTY CXX_STANDARD 17)
+  zephyr_include_directories(${MCUBOOT_DIR}/../../passinglink/src)
+  zephyr_library_sources(${MCUBOOT_DIR}/../../passinglink/src/display/ssd1306.cpp)
+endif()
+
 # CONF_FILE points to the KConfig configuration files of the bootloader.
 foreach (filepath ${CONF_FILE})
   file(READ ${filepath} temp_text)

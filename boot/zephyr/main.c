@@ -52,6 +52,10 @@ const struct boot_uart_funcs boot_funcs = {
 #include <arm_cleanup.h>
 #endif
 
+#if defined(CONFIG_PASSINGLINK_DISPLAY_SSD1306)
+#include "display/ssd1306.h"
+#endif
+
 /* CONFIG_LOG_MINIMAL is the legacy Kconfig property,
  * replaced by CONFIG_LOG_MODE_MINIMAL.
  */
@@ -355,14 +359,35 @@ static bool detect_pin(const char* port, int pin, uint32_t expected_value) {
 }
 #endif
 
+#if defined(CONFIG_PASSINGLINK_DISPLAY_SSD1306)
+#define DISPLAY_LINE(idx, str) display_set_line(idx, str)
+#define DISPLAY_BLIT() display_blit()
+#else
+#define DISPLAY_LINE(idx, str)
+#define DISPLAY_BLIT()
+#endif
+
 static void enter_dfu(k_timeout_t timeout)
 {
     int rc;
 
+#if defined(CONFIG_PASSINGLINK_DISPLAY_SSD1306)
+    rc = ssd1306_init();
+    if (rc == true) {
+        BOOT_LOG_INF("display initialized");
+        display_draw_logo();
+        display_blit();
+    }
+#endif
+
     rc = usb_enable(NULL);
     if (rc) {
         BOOT_LOG_ERR("Cannot enable USB");
+        DISPLAY_LINE(3, "Failed to enable USB");
+        DISPLAY_BLIT();
     } else {
+        DISPLAY_LINE(3, "       DFU mode       ");
+        DISPLAY_BLIT();
         BOOT_LOG_INF("Waiting for USB DFU");
         wait_for_usb_dfu(timeout);
         BOOT_LOG_INF("USB DFU wait time elapsed");
